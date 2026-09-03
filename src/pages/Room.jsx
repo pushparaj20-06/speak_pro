@@ -172,6 +172,7 @@ export default function Room() {
   useEffect(() => {
     // Automatically try to fetch token from backend
     const fetchToken = async () => {
+      try {
         // Use VITE_BACKEND_URL if set (important for APK builds). Otherwise, use empty string (relative path) for Vercel deployments.
         const backendUrl = import.meta.env.VITE_BACKEND_URL || ''; 
         const res = await fetch(`${backendUrl}/api/token`, {
