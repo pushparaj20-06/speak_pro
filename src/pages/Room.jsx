@@ -166,14 +166,15 @@ export default function Room() {
   useEffect(() => {
     const handleSeat = (e) => setMyTableId(e.detail ? e.detail.tableId : null);
     window.addEventListener('SEAT_CHANGED', handleSeat);
-    return () => window.removeEventListener('SEAT_CHANGED', handleSeat);
+  return () => window.removeEventListener('SEAT_CHANGED', handleSeat);
   }, []);
 
   useEffect(() => {
     // Automatically try to fetch token from backend
     const fetchToken = async () => {
       try {
-        // Use VITE_BACKEND_URL if set (important for APK builds). Otherwise, use empty string (relative path) for Vercel deployments.
+        // Use VITE_BACKEND_URL if set...
+
         const backendUrl = import.meta.env.VITE_BACKEND_URL || ''; 
         const res = await fetch(`${backendUrl}/api/token`, {
           method: 'POST',
