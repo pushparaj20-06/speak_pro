@@ -1034,15 +1034,10 @@ export default function RoomEnvironment({ userProfile, localColor }) {
         ))}
 
         {/* Render Remote Players */}
-        {remotes.map(remote => {
-          const state = networkPlayers[remote.identity];
-          if (!state) return null; // Wait for their first MOVE or SYNC packet
+        {remotes.map((remote, idx) => {
+          // Fallback position if they haven't moved yet (so they are always visible)
+          const state = networkPlayers[remote.identity] || { pos: [idx * 3 - 5, 0, 42], rot: 0, profile: {} };
           
-          if (state.isDriving) {
-             return <Car key={remote.identity} position={state.pos} rotation={[0, state.rot, 0]} color="#fbbf24" />;
-          }
-
-          // Find if they are seated to determine Host badge
           let isRemoteHost = false;
           Object.keys(seatMap).forEach(key => {
             if (seatMap[key] === remote.identity) {
