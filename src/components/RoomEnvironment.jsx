@@ -705,9 +705,11 @@ export default function RoomEnvironment({ userProfile, localColor }) {
   // Refs for network callbacks (must be declared after state)
   const seatMapRef = useRef(seatMap);
   const mySeatRef = useRef(null);
+  const localStateRef = useRef(localState);
 
   useEffect(() => { seatMapRef.current = seatMap; }, [seatMap]);
   useEffect(() => { mySeatRef.current = mySeat; }, [mySeat]);
+  useEffect(() => { localStateRef.current = localState; }, [localState]);
 
   // Generate 10 Tables arranged in a large circle
   const tables = useMemo(() => {
@@ -744,11 +746,12 @@ export default function RoomEnvironment({ userProfile, localColor }) {
 
     // Broadcast local state ONLY if moving to reduce lag
     const interval = setInterval(() => {
-      if (localParticipant && localState.moving) {
+      const currentState = localStateRef.current;
+      if (localParticipant && currentState.moving) {
         const payload = JSON.stringify({ 
           type: 'MOVE', 
-          pos: localState.pos, 
-          rot: localState.rot, 
+          pos: currentState.pos, 
+          rot: currentState.rot, 
           profile: userProfile,
           isDriving
         });
@@ -821,7 +824,7 @@ export default function RoomEnvironment({ userProfile, localColor }) {
       window.removeEventListener('UPDATE_TOPIC_LOCAL', handleLocalTopic);
       room.off('dataReceived', handleDataReceived);
     };
-  }, [room, localState.moving, localState.pos, localState.rot, userProfile, localParticipant]);
+  }, [room, userProfile, localParticipant, isDriving]);
 
   // Actions
   const handleSit = (seatId, pos, rot) => {
