@@ -155,7 +155,7 @@ export default function Room() {
   });
 
   const [token, setToken] = useState('');
-  const [serverUrl, setServerUrl] = useState(import.meta.env.VITE_LIVEKIT_URL || 'ws://localhost:7880');
+  const [serverUrl, setServerUrl] = useState('wss://speak-pro-l7q561gl.livekit.cloud');
   const [connected, setConnected] = useState(false);
   const [showChat, setShowChat] = useState(false);
   const [error] = useState(null);

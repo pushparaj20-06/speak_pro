@@ -754,7 +754,8 @@ export default function RoomEnvironment({ userProfile, localColor }) {
           rot: currentState.rot, 
           profile: userProfile,
           isDriving,
-          mySeat: mySeatRef.current
+          mySeat: mySeatRef.current,
+          senderIdentity: localParticipant.identity
         });
         try {
           localParticipant.publishData(new TextEncoder().encode(payload), { reliable: false });
@@ -767,18 +768,21 @@ export default function RoomEnvironment({ userProfile, localColor }) {
     const handleDataReceived = (payload, participant) => {
       try {
         const data = JSON.parse(new TextDecoder().decode(payload));
+        const identity = participant?.identity || data.senderIdentity;
+        if (!identity) return;
+
         if (data.type === 'MOVE') {
           setNetworkPlayers(prev => ({
             ...prev,
-            [participant.identity]: { pos: data.pos, rot: data.rot, profile: data.profile, isDriving: data.isDriving }
+            [identity]: { pos: data.pos, rot: data.rot, profile: data.profile, isDriving: data.isDriving }
           }));
           if (data.mySeat !== undefined) {
              setSeatMap(prev => {
                 const next = { ...prev };
                 // Clear any old seats for this user
-                Object.keys(next).forEach(k => { if (next[k] === participant.identity) delete next[k]; });
+                Object.keys(next).forEach(k => { if (next[k] === identity) delete next[k]; });
                 // Set new seat if sitting
-                if (data.mySeat) next[data.mySeat] = participant.identity;
+                if (data.mySeat) next[data.mySeat] = identity;
                 return next;
              });
           }
@@ -787,11 +791,11 @@ export default function RoomEnvironment({ userProfile, localColor }) {
           if (data.topics) setTableTopics(prev => ({ ...prev, ...data.topics }));
           if (data.hosts) setTableHosts(data.hosts);
         } else if (data.type === 'ACTION_SIT') {
-          setSeatMap(prev => ({ ...prev, [data.seatId]: participant.identity }));
+          setSeatMap(prev => ({ ...prev, [data.seatId]: identity }));
           // If table has no host, this guy becomes host
           const tableId = parseInt(data.seatId.split('_')[0]);
           setTableHosts(prev => {
-            if (!prev[tableId]) return { ...prev, [tableId]: participant.identity };
+            if (!prev[tableId]) return { ...prev, [tableId]: identity };
             return prev;
           });
         } else if (data.type === 'ACTION_STAND') {
@@ -806,7 +810,7 @@ export default function RoomEnvironment({ userProfile, localColor }) {
           if (myCurrentTable !== null) {
              let senderTableId = null;
              Object.keys(seatMapRef.current).forEach(key => {
-               if (seatMapRef.current[key] === participant.identity) {
+               if (seatMapRef.current[key] === identity) {
                   senderTableId = parseInt(key.split('_')[0]);
                }
              });
@@ -814,7 +818,7 @@ export default function RoomEnvironment({ userProfile, localColor }) {
                 window.dispatchEvent(new CustomEvent('TABLE_CHAT_RECEIVED', {
                    detail: { 
                      id: Date.now() + Math.random(),
-                     sender: participant.identity, 
+                     sender: identity, 
                      message: data.message,
                      timestamp: Date.now(),
                      senderName: data.senderName
@@ -826,11 +830,13 @@ export default function RoomEnvironment({ userProfile, localColor }) {
           const myCurrentTable = mySeatRef.current ? parseInt(mySeatRef.current.split('_')[0]) : null;
           if (myCurrentTable !== null && data.tableId === myCurrentTable) {
              window.dispatchEvent(new CustomEvent('TABLE_EMOTE_RECEIVED', {
-                detail: { sender: participant.identity, emote: data.emote }
+                detail: { sender: identity, emote: data.emote }
              }));
           }
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error("handleDataReceived error:", e);
+      }
     };
 
     room.on('dataReceived', handleDataReceived);
@@ -1051,26 +1057,25 @@ export default function RoomEnvironment({ userProfile, localColor }) {
            <MiniRobotNPC key={robot.id} initialPos={robot.pos} bounds={100} />
         ))}
 
-        {/* Render Remote Players */}
-        {remotes.map((remote, idx) => {
-          // Fallback position if they haven't moved yet (so they are always visible)
-          const state = networkPlayers[remote.identity] || { pos: [idx * 3 - 5, 0, 42], rot: 0, profile: {} };
+        {/* Render Remote Players from Network Data */}
+        {Object.entries(networkPlayers).map(([identity, state], idx) => {
+          if (identity === localParticipant?.identity) return null; // Don't render self here
           
           let isRemoteHost = false;
           Object.keys(seatMap).forEach(key => {
-            if (seatMap[key] === remote.identity) {
+            if (seatMap[key] === identity) {
                const tid = parseInt(key.split('_')[0]);
-               if (tableHosts[tid] === remote.identity) isRemoteHost = true;
+               if (tableHosts[tid] === identity) isRemoteHost = true;
             }
           });
 
           return (
             <HumanoidAvatar 
-              key={remote.identity} 
-              participant={remote} 
-              profile={state.profile || { nickname: remote.identity.split('-')[0], gender: 'Male' }} 
-              position={state.pos} 
-              rotation={state.rot} 
+              key={identity} 
+              participant={{ identity }} 
+              profile={state.profile || { nickname: identity.split('-')[0], gender: 'Male' }} 
+              position={state.pos || [idx * 3 - 5, 0, 42]} 
+              rotation={state.rot || 0} 
               isLocal={false}
               isHost={isRemoteHost}
             />
