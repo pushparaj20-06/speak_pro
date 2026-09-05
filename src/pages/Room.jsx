@@ -221,7 +221,7 @@ export default function Room() {
           
           <LiveKitRoom
             video={false}
-            audio={true}
+            audio={false}
             token={token || 'mock-token'}
             serverUrl={serverUrl}
             connect={connected}
