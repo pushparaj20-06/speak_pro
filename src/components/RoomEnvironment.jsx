@@ -747,7 +747,7 @@ export default function RoomEnvironment({ userProfile, localColor }) {
     // Broadcast local state continuously so late joiners instantly see us
     const interval = setInterval(() => {
       const currentState = localStateRef.current;
-      if (localParticipant) {
+      if (localParticipant && room && room.state === 'connected') {
         const payload = JSON.stringify({ 
           type: 'MOVE', 
           pos: currentState.pos, 
@@ -756,7 +756,11 @@ export default function RoomEnvironment({ userProfile, localColor }) {
           isDriving,
           mySeat: mySeatRef.current
         });
-        localParticipant.publishData(new TextEncoder().encode(payload), { reliable: false });
+        try {
+          localParticipant.publishData(new TextEncoder().encode(payload), { reliable: false });
+        } catch (error) {
+          console.warn("Failed to publish MOVE data:", error);
+        }
       }
     }, 150);
 
