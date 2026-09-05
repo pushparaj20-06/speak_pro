@@ -744,16 +744,17 @@ export default function RoomEnvironment({ userProfile, localColor }) {
     };
     window.addEventListener('UPDATE_TOPIC_LOCAL', handleLocalTopic);
 
-    // Broadcast local state ONLY if moving to reduce lag
+    // Broadcast local state continuously so late joiners instantly see us
     const interval = setInterval(() => {
       const currentState = localStateRef.current;
-      if (localParticipant && currentState.moving) {
+      if (localParticipant) {
         const payload = JSON.stringify({ 
           type: 'MOVE', 
           pos: currentState.pos, 
           rot: currentState.rot, 
           profile: userProfile,
-          isDriving
+          isDriving,
+          mySeat: mySeatRef.current
         });
         localParticipant.publishData(new TextEncoder().encode(payload), { reliable: false });
       }
@@ -767,6 +768,16 @@ export default function RoomEnvironment({ userProfile, localColor }) {
             ...prev,
             [participant.identity]: { pos: data.pos, rot: data.rot, profile: data.profile, isDriving: data.isDriving }
           }));
+          if (data.mySeat !== undefined) {
+             setSeatMap(prev => {
+                const next = { ...prev };
+                // Clear any old seats for this user
+                Object.keys(next).forEach(k => { if (next[k] === participant.identity) delete next[k]; });
+                // Set new seat if sitting
+                if (data.mySeat) next[data.mySeat] = participant.identity;
+                return next;
+             });
+          }
         } else if (data.type === 'SYNC_GLOBAL') {
           if (data.seats) setSeatMap(data.seats);
           if (data.topics) setTableTopics(prev => ({ ...prev, ...data.topics }));
