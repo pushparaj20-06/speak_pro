@@ -1,126 +1,92 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
-import { LiveKitRoom, useLocalParticipant } from '@livekit/components-react';
-import { MessageSquare, X, Mic, MicOff, Send } from 'lucide-react';
-import VideoGrid from '../components/VideoGrid';
 import RoomEnvironment from '../components/RoomEnvironment';
+import { MessageSquare, X, Mic, MicOff } from 'lucide-react';
 import GDArenaUI from '../components/GDArenaUI';
-import '@livekit/components-styles';
+import { useFirebaseMultiplayer } from '../hooks/useFirebaseMultiplayer';
+import AgoraRTC, { AgoraRTCProvider, useRTCClient, useLocalMicrophoneTrack, usePublish, useJoin, useRemoteUsers, useRemoteAudioTracks, RemoteAudioTrack } from "agora-rtc-react";
 
-function CustomAudioControls() {
-  const { localParticipant, isMicrophoneEnabled } = useLocalParticipant();
-  const toggleMic = () => {
-    if (localParticipant) {
-      localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled);
-    }
-  };
+// Initialize Agora Client
+const agoraClient = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+
+// Plays audio for all remote users
+function AgoraRemoteAudio() {
+  const remoteUsers = useRemoteUsers();
+  const { audioTracks } = useRemoteAudioTracks(remoteUsers);
 
   return (
-    <div className="absolute top-4 right-4 z-50">
-      <button
-        onClick={toggleMic}
-        className={`flex items-center justify-center w-14 h-14 rounded-full shadow-2xl transition-all hover:scale-105 ${isMicrophoneEnabled ? 'bg-green-500 text-white shadow-[0_0_20px_#10b981]' : 'bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.6)]'}`}
+    <>
+      {audioTracks.map((track) => (
+        <RemoteAudioTrack key={track.getUserId()} play track={track} />
+      ))}
+    </>
+  );
+}
+
+// Agora Voice Component
+function AgoraVoiceControls({ channelName }) {
+  const [micOn, setMicOn] = useState(false);
+  const appId = import.meta.env.VITE_AGORA_APP_ID;
+
+  // Always join the channel so you can hear others. 
+  // We use uid: null so Agora assigns a unique integer ID automatically (avoiding string UID errors).
+  useJoin({ appid: appId, channel: channelName, token: null, uid: null }, true);
+  
+  const { localMicrophoneTrack } = useLocalMicrophoneTrack(micOn);
+  usePublish([localMicrophoneTrack]);
+
+  return (
+    <div className="absolute top-6 right-6 z-40 bg-dark-900/80 backdrop-blur-xl border border-white/20 p-2 md:p-3 rounded-full flex gap-3 shadow-[0_10px_30px_rgba(0,0,0,0.5)]">
+      <button 
+        onClick={() => setMicOn(!micOn)}
+        className={`w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-full transition-all duration-300 ${
+          micOn 
+            ? 'bg-primary-500 text-dark-900 shadow-[0_0_15px_#2dd4bf]' 
+            : 'bg-dark-800 text-red-500 hover:bg-dark-700'
+        }`}
       >
-        {isMicrophoneEnabled ? <Mic size={24} /> : <MicOff size={24} />}
+        {micOn ? <Mic size={20} /> : <MicOff size={20} />}
       </button>
     </div>
   );
 }
 
-function EmoteBar({ myTableId }) {
-  const { localParticipant } = useLocalParticipant();
-  if (myTableId === null || !localParticipant) return null;
 
-  const sendEmote = (emoji) => {
-    const payload = JSON.stringify({
-      type: 'TABLE_EMOTE',
-      tableId: myTableId,
-      emote: emoji,
-      senderName: localParticipant.identity.split('-')[0]
-    });
-    localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
-
-    // Dispatch local event so we see our own emote immediately
-    const myEmote = { sender: localParticipant.identity, emote: emoji };
-    window.dispatchEvent(new CustomEvent('TABLE_EMOTE_RECEIVED', { detail: myEmote }));
-  };
-
-  const emotes = ['👏', '🔥', '👍', '💡'];
-
-  return (
-    <div className="absolute top-1/2 -translate-y-1/2 right-4 z-50 flex flex-col gap-3">
-      {emotes.map(e => (
-        <button
-          key={e}
-          onClick={() => sendEmote(e)}
-          className="bg-dark-900/80 backdrop-blur border border-white/20 hover:border-primary-500 rounded-full w-12 h-12 flex items-center justify-center text-2xl hover:scale-110 transition-all shadow-[0_0_15px_rgba(0,0,0,0.5)] hover:shadow-[0_0_20px_rgba(20,184,166,0.4)]"
-          title={`Send ${e}`}
-        >
-          {e}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function CustomTableChat({ myTableId }) {
-  const { localParticipant } = useLocalParticipant();
-  const [messages, setMessages] = useState([]);
+function CustomTableChat({ myTableId, chatMessages, sendChatMessage, participantName }) {
   const [input, setInput] = useState('');
-
-  useEffect(() => {
-    const handleChat = (e) => setMessages(prev => [...prev, e.detail]);
-    window.addEventListener('TABLE_CHAT_RECEIVED', handleChat);
-    return () => window.removeEventListener('TABLE_CHAT_RECEIVED', handleChat);
-  }, []);
 
   const send = (e) => {
     e.preventDefault();
-    if (!input.trim() || !localParticipant || myTableId === null) return;
+    if (!input.trim() || myTableId === null) return;
 
-    const payload = JSON.stringify({
-      type: 'TABLE_CHAT',
-      message: input,
-      senderName: localParticipant.identity.split('-')[0]
-    });
-    localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
-
-    const myMsg = {
-      id: Date.now() + Math.random(),
-      sender: localParticipant.identity,
-      message: input,
-      timestamp: Date.now(),
-      senderName: 'You'
-    };
-    setMessages(prev => [...prev, myMsg]);
-    window.dispatchEvent(new CustomEvent('TABLE_CHAT_RECEIVED', { detail: myMsg }));
+    sendChatMessage(input, participantName);
     setInput('');
   };
 
   if (myTableId === null) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-dark-900/50">
-        <MessageSquare size={48} className="text-gray-600 mb-4" />
-        <h3 className="text-white font-bold text-lg mb-2">No Table Selected</h3>
-        <p className="text-gray-400 text-sm">Please walk to a table and click <strong>SIT HERE</strong> to join the private chat.</p>
+      <div className="flex-1 flex flex-col items-center justify-center text-center p-6 text-gray-500">
+        <MessageSquare size={32} className="mb-4 opacity-50" />
+        <p>Sit at a table to chat securely with others.</p>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full bg-dark-900/50">
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map(m => {
-          const isMe = m.sender === localParticipant?.identity;
-          return (
-            <div key={m.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-              <span className="text-[10px] text-gray-400 font-bold mb-1 ml-1">{m.senderName}</span>
-              <div className={`px-4 py-2 rounded-2xl text-sm shadow-md max-w-[90%] break-words ${isMe ? 'bg-primary-500 text-dark-900 rounded-tr-sm' : 'bg-dark-700 text-white border border-white/10 rounded-tl-sm'}`}>
-                {m.message}
-              </div>
+    <div className="flex-1 flex flex-col h-full overflow-hidden">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+        {chatMessages.map((msg, i) => (
+          <div key={i} className={`flex flex-col ${msg.senderName === participantName ? 'items-end' : 'items-start'}`}>
+            <span className="text-[10px] text-gray-500 mb-1 font-medium tracking-wider px-1 uppercase">{msg.senderName}</span>
+            <div className={`px-4 py-2.5 rounded-2xl text-sm max-w-[85%] ${
+              msg.senderName === participantName
+                ? 'bg-primary-600 text-white rounded-tr-sm shadow-[0_2px_10px_rgba(20,184,166,0.3)]' 
+                : 'bg-dark-800 text-gray-200 border border-white/5 rounded-tl-sm'
+            }`}>
+              {msg.message}
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
       <form onSubmit={send} className="p-3 border-t border-white/10 bg-dark-800 flex gap-2 items-center">
         <input
@@ -131,7 +97,7 @@ function CustomTableChat({ myTableId }) {
           placeholder={`Message Table ${myTableId + 1}...`}
         />
         <button type="submit" className="bg-primary-500 hover:bg-primary-400 text-dark-900 p-2.5 rounded-full transition-transform hover:scale-110 shadow-[0_0_15px_rgba(20,184,166,0.3)]">
-          <Send size={18} />
+          <MessageSquare size={18} />
         </button>
       </form>
     </div>
@@ -149,56 +115,54 @@ export default function Room() {
   const avatarColor = location.state?.avatarColor || '#2dd4bf';
 
   // Profile Data
-  const [userProfile, setUserProfile] = useState(() => {
+  const [userProfile] = useState(() => {
     const saved = localStorage.getItem('userProfile');
-    return saved ? JSON.parse(saved) : { nickname: 'Guest', gender: 'Male', age: 18 };
+    return saved ? JSON.parse(saved) : { nickname: participantName, gender: 'Male', age: 18 };
   });
 
-  const [token, setToken] = useState('');
-  const [serverUrl, setServerUrl] = useState('wss://speak-pro-l7q561gl.livekit.cloud');
-  const [connected, setConnected] = useState(false);
   const [showChat, setShowChat] = useState(false);
-  const [error] = useState(null);
-
-  // Track which table the local user is sitting at
   const [myTableId, setMyTableId] = useState(null);
 
+  const {
+    networkPlayers,
+    roomData,
+    chatMessages,
+    connected,
+    identity,
+    updatePosition,
+    updateSeat,
+    sendChatMessage,
+    updateArenaState,
+    sendEmote
+  } = useFirebaseMultiplayer(roomId || 'speakpro-room', participantName, userProfile);
+
+  // Listen for seat changes from local player
   useEffect(() => {
-    const handleSeat = (e) => setMyTableId(e.detail ? e.detail.tableId : null);
+    const handleSeat = (e) => {
+      const seat = e.detail ? e.detail : null;
+      setMyTableId(seat ? seat.tableId : null);
+      updateSeat(seat);
+    };
     window.addEventListener('SEAT_CHANGED', handleSeat);
     return () => window.removeEventListener('SEAT_CHANGED', handleSeat);
-  }, []);
+  }, [updateSeat]);
 
-  useEffect(() => {
-    // Automatically try to fetch token from backend
-    const fetchToken = async () => {
-      try {
-        // Use VITE_BACKEND_URL if set (important for APK builds). Otherwise, use empty string (relative path) for Vercel deployments.
-        const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
-        const res = await fetch(`${backendUrl}/api/token`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ roomName: roomId || 'demo-room', participantName })
-        });
-        const data = await res.json();
-        if (data.token) {
-          setToken(data.token);
-          setConnected(true);
-        } else {
-          throw new Error('No token received');
-        }
-      } catch (_err) {
-        console.warn('Backend server not running. Falling back to Demo Mode.');
-        setConnected(true); // Proceed anyway for UI demo purposes
-      }
-    };
-    fetchToken();
-  }, [roomId, participantName]);
 
-  if (error) return <div className="min-h-screen flex items-center justify-center bg-dark-900 text-red-500">{error}</div>;
-
-  if (connected) {
+  if (!connected) {
     return (
+      <div className="relative min-h-screen w-full flex items-center justify-center bg-dark-900 overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary-900/20 via-dark-900 to-dark-900"></div>
+        <div className="relative z-10 flex flex-col items-center gap-6">
+          <div className="w-16 h-16 border-4 border-primary-500/30 border-t-primary-500 rounded-full animate-spin shadow-[0_0_20px_rgba(20,184,166,0.3)]"></div>
+          <h2 className="text-xl font-medium text-white animate-pulse">Connecting to World...</h2>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <AgoraRTCProvider client={agoraClient}>
+      <AgoraRemoteAudio />
       <div className="min-h-screen bg-dark-900 flex flex-col">
         <header className="glass-panel rounded-none border-t-0 border-l-0 border-r-0 border-b border-white/20 px-4 py-3 md:px-6 md:py-4 flex justify-between items-center z-30 bg-black/40 backdrop-blur-xl shadow-[0_4px_30px_rgba(0,0,0,0.5)]">
           <h2 className="text-lg md:text-xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-primary-400 to-cyan-400 flex items-center gap-2 md:gap-3 drop-shadow-[0_0_10px_rgba(45,212,191,0.5)]">
@@ -219,33 +183,27 @@ export default function Room() {
           {/* Subtle background glow */}
           <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-primary-900/10 blur-[120px] pointer-events-none"></div>
 
-          <LiveKitRoom
-            video={false}
-            audio={false}
-            token={token || 'mock-token'}
-            serverUrl={serverUrl}
-            connect={connected}
-            onDisconnected={() => console.log('Disconnected')}
-            className="w-full h-full relative"
-          >
-            <CustomAudioControls />
-            <EmoteBar myTableId={myTableId} />
+          <div className="absolute inset-0">
+            <AgoraVoiceControls channelName={myTableId !== null ? `${roomId}_table_${myTableId}` : `${roomId}_global`} />
 
             {/* 3D Metaverse Arena */}
-            <GDArenaUI />
+            <GDArenaUI 
+              roomData={roomData} 
+              updateArenaState={updateArenaState} 
+              myTableId={myTableId} 
+              sendEmote={sendEmote}
+              identity={identity}
+            />
+            
             <RoomEnvironment
               theme={environmentTheme}
               localShape={avatarShape}
               localColor={avatarColor}
               userProfile={userProfile}
+              networkPlayers={networkPlayers}
+              identity={identity}
+              updatePosition={updatePosition}
             />
-
-            <div className="flex-1 relative flex flex-col h-full w-full overflow-hidden pointer-events-none">
-              <VideoGrid />
-            </div>
-
-            {/* Custom Top Right Mute Button */}
-            <CustomAudioControls />
 
             {/* Floating Action Button for Chat */}
             <button
@@ -272,27 +230,16 @@ export default function Room() {
                   <span className="bg-primary-500/20 text-primary-400 px-2 py-0.5 rounded text-xs font-bold border border-primary-500/30">SECURE</span>
                 )}
               </div>
-              <CustomTableChat myTableId={myTableId} />
+              <CustomTableChat 
+                myTableId={myTableId} 
+                chatMessages={chatMessages} 
+                sendChatMessage={sendChatMessage} 
+                participantName={participantName} 
+              />
             </div>
-          </LiveKitRoom>
+          </div>
         </main>
       </div>
-    );
-  }
-
-  // Loading state while fetching token or falling back to demo mode
-  return (
-    <div className="relative min-h-screen w-full flex items-center justify-center bg-dark-900 overflow-hidden">
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary-900/20 via-dark-900 to-dark-900"></div>
-
-      {/* Decorative blobs */}
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full bg-primary-900/20 blur-[100px] animate-blob"></div>
-      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full bg-primary-800/10 blur-[100px] animate-blob" style={{ animationDelay: '2s' }}></div>
-
-      <div className="relative z-10 flex flex-col items-center gap-6">
-        <div className="w-16 h-16 border-4 border-primary-500/30 border-t-primary-500 rounded-full animate-spin shadow-[0_0_20px_rgba(20,184,166,0.3)]"></div>
-        <h2 className="text-xl font-medium text-white animate-pulse">Connecting to Space...</h2>
-      </div>
-    </div>
+    </AgoraRTCProvider>
   );
 }

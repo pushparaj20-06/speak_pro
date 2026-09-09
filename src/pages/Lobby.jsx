@@ -62,28 +62,28 @@ export default function Lobby() {
          <div className="absolute inset-0 bg-gradient-to-br from-dark-800 to-dark-950"></div>
          <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-primary-500/20 via-transparent to-transparent"></div>
          
-         <div className="absolute top-8 left-8 z-10 pointer-events-none">
-           <h1 className="text-4xl font-black tracking-tight flex items-center gap-3 drop-shadow-[0_0_15px_rgba(20,184,166,0.5)]">
-              <DoorOpen className="text-primary-500" size={40} />
+         <div className="absolute top-4 left-4 md:top-8 md:left-8 z-10 pointer-events-none">
+           <h1 className="text-2xl md:text-4xl font-black tracking-tight flex items-center gap-2 md:gap-3 drop-shadow-[0_0_15px_rgba(20,184,166,0.5)]">
+              <DoorOpen className="text-primary-500 w-8 h-8 md:w-10 md:h-10" />
               SPEAK PRO
            </h1>
-           <p className="text-primary-300/80 mt-2 font-bold tracking-[0.2em] uppercase text-xs ml-1">3D Virtual Arena</p>
+           <p className="text-primary-300/80 mt-1 md:mt-2 font-bold tracking-[0.2em] uppercase text-[10px] md:text-xs ml-1">3D Virtual Arena</p>
          </div>
 
          <div className="w-full h-full cursor-move">
-           <Canvas camera={{ position: [0, 1.2, 3], fov: 45 }} className="w-full h-full">
+           <Canvas camera={{ position: [0, 1.2, 4], fov: 45 }} className="w-full h-full">
               <ambientLight intensity={0.6} />
               <directionalLight position={[5, 10, 5]} intensity={1.5} castShadow />
               <directionalLight position={[-5, 5, -5]} intensity={0.5} />
               <Suspense fallback={null}>
-                 <HumanoidAvatar profile={currentProfile} position={[0, -0.6, 0]} rotation={0} />
+                 <HumanoidAvatar profile={currentProfile} position={[0, -0.8, 0]} rotation={0} />
                  <Environment preset="city" />
-                 <ContactShadows position={[0, -0.6, 0]} opacity={0.4} scale={10} blur={2} far={4} resolution={256} />
+                 <ContactShadows position={[0, -0.8, 0]} opacity={0.4} scale={10} blur={2} far={4} resolution={256} />
               </Suspense>
               <OrbitControls 
                  enableZoom={true} 
-                 minDistance={2} 
-                 maxDistance={6}
+                 minDistance={2.5} 
+                 maxDistance={8}
                  enablePan={false} 
                  minPolarAngle={Math.PI/3} 
                  maxPolarAngle={Math.PI/2} 
@@ -91,7 +91,7 @@ export default function Lobby() {
            </Canvas>
          </div>
          
-         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-gray-400 text-xs tracking-wider opacity-60 pointer-events-none">
+         <div className="absolute bottom-4 md:bottom-6 left-1/2 -translate-x-1/2 text-gray-400 text-[10px] md:text-xs tracking-wider opacity-80 pointer-events-none whitespace-nowrap bg-dark-900/50 px-3 py-1 rounded-full backdrop-blur-sm">
            Drag to rotate avatar
          </div>
       </div>

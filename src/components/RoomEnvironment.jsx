@@ -2,8 +2,6 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Environment, Stars, Html, OrbitControls, Grid, Sparkles, ContactShadows, Float, Box, Sphere, Cylinder, Cone, useGLTF } from '@react-three/drei';
 import { useRef, useState, useEffect, useMemo, forwardRef, memo } from 'react';
 import * as THREE from 'three';
-import { useRemoteParticipants, useRoomContext, useChat, useTracks, AudioTrack } from '@livekit/components-react';
-import { Track } from 'livekit-client';
 import HumanoidAvatar from './HumanoidAvatar';
 // --- MINI ROBOTS (Slow Hovering NPCs) ---
 function MiniRobotNPC({ initialPos, bounds }) {
@@ -112,6 +110,10 @@ function DiscussionTable({ tableId, position, topic, onSit, seatMap }) {
     return s;
   }, [tableId, position]);
 
+  const isOccupied = useMemo(() => {
+    return Object.keys(seatMap).some(key => key.startsWith(`${tableId}_`));
+  }, [seatMap, tableId]);
+
   return (
     <group>
       {/* The Table */}
@@ -130,14 +132,16 @@ function DiscussionTable({ tableId, position, topic, onSit, seatMap }) {
         </mesh>
       </group>
 
-      {/* Fixed Gold Topic Text */}
-      <mesh position={[position[0], 2.8, position[2]]}>
-        <Html position={[0, 0, 0]} center transform sprite zIndexRange={[100, 0]}>
-           <div className="bg-[#2a1b00]/90 border-2 border-[#ffd700] px-6 py-2 rounded-lg text-[#ffd700] font-black text-2xl whitespace-nowrap shadow-[0_0_15px_rgba(255,215,0,0.5)] tracking-widest">
-             TABLE {tableId + 1}
-           </div>
-        </Html>
-      </mesh>
+      {/* Fixed Gold Topic Text - Hides when occupied */}
+      {!isOccupied && (
+        <mesh position={[position[0], 2.8, position[2]]}>
+          <Html position={[0, 0, 0]} center transform sprite zIndexRange={[100, 0]}>
+             <div className="bg-[#2a1b00]/90 border-2 border-[#ffd700] px-6 py-2 rounded-lg text-[#ffd700] font-black text-2xl whitespace-nowrap shadow-[0_0_15px_rgba(255,215,0,0.5)] tracking-widest">
+               TABLE {tableId + 1}
+             </div>
+          </Html>
+        </mesh>
+      )}
 
       {/* Render Empty Seats (Occupied seats are rendered by avatars globally) */}
       {seats.map(seat => {
@@ -654,38 +658,11 @@ const CityScenery = memo(function CityScenery() {
   );
 });
 
-// --- PROXIMITY AUDIO TRACK ---
-function ProximityAudioTrack({ trackRef, volume }) {
-  const ref = useRef(null);
-  
-  useEffect(() => {
-    if (!trackRef?.publication?.track) return;
-    const track = trackRef.publication.track;
-    const el = document.createElement('audio');
-    el.autoplay = true;
-    track.attach(el);
-    ref.current = el;
-    
-    return () => {
-      track.detach(el);
-      el.remove();
-    };
-  }, [trackRef]);
-
-  useEffect(() => {
-    if (ref.current) {
-      ref.current.volume = Math.max(0, Math.min(1, volume));
-    }
-  }, [volume]);
-
-  return null;
-}
+// --- PROXIMITY AUDIO TRACK (Disabled for Agora) ---
+// Audio is now handled by AgoraRTCProvider in Room.jsx
 
 // --- MAIN ARENA ---
-export default function RoomEnvironment({ userProfile, localColor }) {
-  const room = useRoomContext();
-  const remotes = useRemoteParticipants();
-  const localParticipant = room?.localParticipant;
+export default function RoomEnvironment({ userProfile, localColor, networkPlayers, identity, updatePosition }) {
   
   const [isDriving, setIsDriving] = useState(false);
 
@@ -694,11 +671,8 @@ export default function RoomEnvironment({ userProfile, localColor }) {
   const [tableTopics, setTableTopics] = useState({}); // { 'tableId': 'Topic' }
   const [tableHosts, setTableHosts] = useState({}); // { 'tableId': 'userId' }
   
-  // Avatars positioning network state
-  const [networkPlayers, setNetworkPlayers] = useState({}); // { 'userId': { pos, rot, profile } }
-  
   // Local Player State (Spawn facing the room)
-  const [localState, setLocalState] = useState({ pos: [0, 0, 45], rot: 0 }); // rot 0 to face room
+  const [localState, setLocalState] = useState({ pos: [0, 0, 0], rot: 0 }); // rot 0 to face room
   const [mySeat, setMySeat] = useState(null); // 'tableId_seatId'
   const [showToast, setShowToast] = useState(null); // Full Room Message
 
@@ -710,6 +684,40 @@ export default function RoomEnvironment({ userProfile, localColor }) {
   useEffect(() => { seatMapRef.current = seatMap; }, [seatMap]);
   useEffect(() => { mySeatRef.current = mySeat; }, [mySeat]);
   useEffect(() => { localStateRef.current = localState; }, [localState]);
+
+  // Sync seatMap and tableHosts from networkPlayers
+  useEffect(() => {
+    if (!networkPlayers) return;
+    const newSeatMap = {};
+    const tableSeats = {}; // { tableId: [{playerId, satAt}] }
+
+    Object.entries(networkPlayers).forEach(([playerId, state]) => {
+      if (state.mySeat) {
+        let seatStr, tid;
+        if (typeof state.mySeat === 'string') {
+          seatStr = state.mySeat;
+          tid = parseInt(seatStr.split('_')[0]);
+        } else {
+          seatStr = state.mySeat.seatId;
+          tid = state.mySeat.tableId;
+        }
+        
+        newSeatMap[seatStr] = playerId;
+        if (!tableSeats[tid]) tableSeats[tid] = [];
+        tableSeats[tid].push({ playerId, satAt: state.satAt || Date.now() });
+      }
+    });
+
+    const newTableHosts = {};
+    Object.keys(tableSeats).forEach(tid => {
+      // Sort by satAt ascending (earliest becomes host)
+      tableSeats[tid].sort((a, b) => a.satAt - b.satAt);
+      newTableHosts[tid] = tableSeats[tid][0].playerId;
+    });
+
+    setSeatMap(newSeatMap);
+    setTableHosts(newTableHosts);
+  }, [networkPlayers]);
 
   // Generate 10 Tables arranged in a large circle
   const tables = useMemo(() => {
@@ -732,222 +740,58 @@ export default function RoomEnvironment({ userProfile, localColor }) {
     return r;
   }, []);
 
-  // Networking Loop
+  // Networking Loop (Sync Local State via props)
   useEffect(() => {
-    if (!room) return;
-
-    // Listen for local topic updates from GDArenaUI
-    const handleLocalTopic = (e) => {
-      if (e.detail) {
-        setTableTopics(prev => ({ ...prev, [e.detail.tableId]: e.detail.topic }));
-      }
-    };
-    window.addEventListener('UPDATE_TOPIC_LOCAL', handleLocalTopic);
-
-    // Broadcast local state continuously so late joiners instantly see us
     const interval = setInterval(() => {
       const currentState = localStateRef.current;
-      if (localParticipant && room && room.state === 'connected') {
-        const payload = JSON.stringify({ 
-          type: 'MOVE', 
-          pos: currentState.pos, 
-          rot: currentState.rot, 
-          profile: userProfile,
-          isDriving,
-          mySeat: mySeatRef.current,
-          senderIdentity: localParticipant.identity
-        });
-        try {
-          localParticipant.publishData(new TextEncoder().encode(payload), { reliable: false });
-        } catch (error) {
-          console.warn("Failed to publish MOVE data:", error);
-        }
-      }
+      updatePosition(currentState.pos, currentState.rot, isDriving);
     }, 150);
-
-    const handleDataReceived = (payload, participant) => {
-      try {
-        const data = JSON.parse(new TextDecoder().decode(payload));
-        const identity = participant?.identity || data.senderIdentity;
-        if (!identity) return;
-
-        if (data.type === 'MOVE') {
-          setNetworkPlayers(prev => ({
-            ...prev,
-            [identity]: { pos: data.pos, rot: data.rot, profile: data.profile, isDriving: data.isDriving }
-          }));
-          if (data.mySeat !== undefined) {
-             setSeatMap(prev => {
-                const next = { ...prev };
-                // Clear any old seats for this user
-                Object.keys(next).forEach(k => { if (next[k] === identity) delete next[k]; });
-                // Set new seat if sitting
-                if (data.mySeat) next[data.mySeat] = identity;
-                return next;
-             });
-          }
-        } else if (data.type === 'SYNC_GLOBAL') {
-          if (data.seats) setSeatMap(data.seats);
-          if (data.topics) setTableTopics(prev => ({ ...prev, ...data.topics }));
-          if (data.hosts) setTableHosts(data.hosts);
-        } else if (data.type === 'ACTION_SIT') {
-          setSeatMap(prev => ({ ...prev, [data.seatId]: identity }));
-          // If table has no host, this guy becomes host
-          const tableId = parseInt(data.seatId.split('_')[0]);
-          setTableHosts(prev => {
-            if (!prev[tableId]) return { ...prev, [tableId]: identity };
-            return prev;
-          });
-        } else if (data.type === 'ACTION_STAND') {
-          setSeatMap(prev => {
-            const next = {...prev};
-            delete next[data.seatId];
-            return next;
-          });
-        } else if (data.type === 'TABLE_CHAT') {
-          // Verify if they are at my table
-          const myCurrentTable = mySeatRef.current ? parseInt(mySeatRef.current.split('_')[0]) : null;
-          if (myCurrentTable !== null) {
-             let senderTableId = null;
-             Object.keys(seatMapRef.current).forEach(key => {
-               if (seatMapRef.current[key] === identity) {
-                  senderTableId = parseInt(key.split('_')[0]);
-               }
-             });
-             if (senderTableId === myCurrentTable) {
-                window.dispatchEvent(new CustomEvent('TABLE_CHAT_RECEIVED', {
-                   detail: { 
-                     id: Date.now() + Math.random(),
-                     sender: identity, 
-                     message: data.message,
-                     timestamp: Date.now(),
-                     senderName: data.senderName
-                   }
-                }));
-             }
-          }
-        } else if (data.type === 'TABLE_EMOTE') {
-          const myCurrentTable = mySeatRef.current ? parseInt(mySeatRef.current.split('_')[0]) : null;
-          if (myCurrentTable !== null && data.tableId === myCurrentTable) {
-             window.dispatchEvent(new CustomEvent('TABLE_EMOTE_RECEIVED', {
-                detail: { sender: identity, emote: data.emote }
-             }));
-          }
-        }
-      } catch (e) {
-        console.error("handleDataReceived error:", e);
-      }
-    };
-
-    room.on('dataReceived', handleDataReceived);
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('UPDATE_TOPIC_LOCAL', handleLocalTopic);
-      room.off('dataReceived', handleDataReceived);
-    };
-  }, [room, userProfile, localParticipant, isDriving]);
+    return () => clearInterval(interval);
+  }, [updatePosition, isDriving]);
 
   // Actions
   const handleSit = (seatId, pos, rot) => {
     // Check if table is full globally or if they can sit.
-    // 10 tables * 7 seats = 70. 
     if (Object.keys(seatMap).length >= 70) {
        setShowToast("ROOM FULL! ALL 70 SEATS OCCUPIED. PLEASE WAIT.");
        setTimeout(() => setShowToast(null), 3000);
-       return; // Prevent sitting
+       return; 
     }
 
-    // Stand up from old seat if any
     if (mySeat) {
        handleStand();
     }
     setMySeat(seatId);
     setLocalState({ pos, rot }); // Snap to seat
     
-    // Notify UI
+    // Notify UI (which triggers Firebase update)
     const tableId = parseInt(seatId.split('_')[0]);
-    window.dispatchEvent(new CustomEvent('SEAT_CHANGED', { detail: { tableId, isHost: tableHosts[tableId] === localParticipant?.identity || !tableHosts[tableId] } }));
-
-    // Sync
-    if (localParticipant) {
-       // Optimistic local update
-       setSeatMap(prev => ({ ...prev, [seatId]: localParticipant.identity }));
-       setTableHosts(prev => {
-          if (!prev[tableId]) return { ...prev, [tableId]: localParticipant.identity };
-          return prev;
-       });
-
-       const payload = JSON.stringify({ type: 'ACTION_SIT', seatId });
-       localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
-    }
+    window.dispatchEvent(new CustomEvent('SEAT_CHANGED', { detail: { tableId, seatId, isHost: tableHosts[tableId] === identity || !tableHosts[tableId] } }));
   };
+
+  useEffect(() => {
+    const onStandUp = () => handleStand();
+    window.addEventListener('STAND_UP_LOCAL', onStandUp);
+    return () => window.removeEventListener('STAND_UP_LOCAL', onStandUp);
+  }, [mySeat]);
 
   const handleStand = () => {
     if (!mySeat) return;
-    const oldSeat = mySeat;
     setMySeat(null);
     window.dispatchEvent(new CustomEvent('SEAT_CHANGED', { detail: null }));
-    
-    if (localParticipant) {
-      setSeatMap(prev => {
-        const next = {...prev};
-        delete next[oldSeat];
-        return next;
-      });
-      const payload = JSON.stringify({ type: 'ACTION_STAND', seatId: oldSeat });
-      localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
-    }
   };
 
-  // --- SPATIAL AUDIO MANAGER ---
-  // Only play audio of users who are sitting at the exact SAME table as the local user.
   const myTableId = mySeat ? parseInt(mySeat.split('_')[0]) : null;
-  const audioTracks = useTracks([Track.Source.Microphone]) || [];
 
   const allPlayersList = useMemo(() => {
      return [
        localState,
-       ...Object.values(networkPlayers)
+       ...Object.values(networkPlayers || {})
      ];
   }, [localState, networkPlayers]);
 
   return (
     <div className="absolute inset-0 z-0 w-full h-full">
-      {/* Dynamic Audio Partitioning based on Table */}
-      {audioTracks.map((trackRef) => {
-        if (!trackRef?.participant || trackRef.participant.isLocal) return null; // Don't hear yourself
-        
-        // Find which table this remote user is sitting at
-        let theirTableId = null;
-        if (seatMap) {
-          Object.keys(seatMap).forEach(key => {
-            if (seatMap[key] === trackRef.participant.identity) {
-               theirTableId = parseInt(key.split('_')[0]);
-            }
-          });
-        }
-
-        // Table Chat (Both seated at the SAME table) - 100% Volume
-        if (myTableId !== null && theirTableId === myTableId) {
-           return <AudioTrack key={trackRef.publication?.trackSid || trackRef.participant.identity} trackRef={trackRef} />;
-        }
-        
-        // Proximity Spatial Chat (Both walking around) - Volume based on distance
-        if (myTableId === null && theirTableId === null) {
-           const theirState = networkPlayers[trackRef.participant.identity];
-           if (theirState && theirState.pos) {
-              const dx = localState.pos[0] - theirState.pos[0];
-              const dz = localState.pos[2] - theirState.pos[2];
-              const distance = Math.sqrt(dx*dx + dz*dz);
-              
-              if (distance < 20) {
-                 const volume = 1.0 - (distance / 20);
-                 return <ProximityAudioTrack key={trackRef.publication?.trackSid || trackRef.participant.identity} trackRef={trackRef} volume={volume} />;
-              }
-           }
-        }
-        return null;
-      })}
 
       <Canvas>
         <LocalController localPos={localState} setLocalPos={setLocalState} isSitting={!!mySeat} isDriving={isDriving} />
@@ -1008,11 +852,6 @@ export default function RoomEnvironment({ userProfile, localColor }) {
             <ringGeometry args={[27, 33, 64]} />
             <meshStandardMaterial color="#8c7b66" roughness={1} /> {/* Stone/Gravel color */}
           </mesh>
-          {/* Entry Path connecting Welcome Zone to the Ring */}
-          <mesh position={[0, 0, 39]} rotation={[-Math.PI/2, 0, 0]} receiveShadow>
-            <planeGeometry args={[6, 12]} />
-            <meshStandardMaterial color="#8c7b66" roughness={1} />
-          </mesh>
         </group>
 
         {/* Center Grass Patch (Fills inner circle of 10 tables) */}
@@ -1027,18 +866,12 @@ export default function RoomEnvironment({ userProfile, localColor }) {
         <PineTree position={[6, 0, -6]} />
         <PineTree position={[-6, 0, -6]} />
 
-        {/* Welcome Spawn Zone at [0, 0, 45] */}
-        <group position={[0, 0, 45]}>
-           <mesh position={[0, 0.05, -2]} rotation={[-Math.PI/2, 0, 0]}>
-             <planeGeometry args={[10, 20]} />
-             <meshStandardMaterial color="#8B0000" roughness={0.8} /> {/* Red Carpet */}
-           </mesh>
-           <Html position={[0, 3, 0]} center transform sprite zIndexRange={[10, 0]}>
-             <div className="text-white font-black text-4xl bg-black/50 px-6 py-2 rounded-2xl border-4 border-[#ffd700] whitespace-nowrap shadow-[0_0_30px_#ffd700]">
-               WELCOME TO SPEAK PRO
-             </div>
-           </Html>
-        </group>
+        {/* Welcome Text in the Center */}
+        <Html position={[0, 4, 0]} center transform sprite zIndexRange={[10, 0]}>
+           <div className="text-white font-black text-xl md:text-4xl bg-black/50 px-4 md:px-6 py-2 rounded-2xl border-2 md:border-4 border-[#ffd700] whitespace-nowrap shadow-[0_0_30px_#ffd700] animate-pulse">
+             WELCOME TO SPEAK PRO
+           </div>
+        </Html>
 
         {/* Render 10 Tables */}
         {tables.map(table => (
@@ -1058,22 +891,22 @@ export default function RoomEnvironment({ userProfile, localColor }) {
         ))}
 
         {/* Render Remote Players from Network Data */}
-        {Object.entries(networkPlayers).map(([identity, state], idx) => {
-          if (identity === localParticipant?.identity) return null; // Don't render self here
+        {Object.entries(networkPlayers || {}).map(([playerId, state], idx) => {
+          if (playerId === identity) return null; // Don't render self here
           
           let isRemoteHost = false;
           Object.keys(seatMap).forEach(key => {
-            if (seatMap[key] === identity) {
+            if (seatMap[key] === playerId) {
                const tid = parseInt(key.split('_')[0]);
-               if (tableHosts[tid] === identity) isRemoteHost = true;
+               if (tableHosts[tid] === playerId) isRemoteHost = true;
             }
           });
 
           return (
             <HumanoidAvatar 
-              key={identity} 
-              participant={{ identity }} 
-              profile={state.profile || { nickname: identity.split('-')[0], gender: 'Male' }} 
+              key={playerId} 
+              identity={playerId} 
+              profile={state.profile || { nickname: playerId.split('-')[0], gender: 'Male' }} 
               position={state.pos || [idx * 3 - 5, 0, 42]} 
               rotation={state.rot || 0} 
               isLocal={false}
@@ -1083,17 +916,17 @@ export default function RoomEnvironment({ userProfile, localColor }) {
         })}
 
         {/* Render Local Player */}
-        {localParticipant && !isDriving && (
+        {!isDriving && (
           <HumanoidAvatar 
-            participant={localParticipant} 
+            identity={identity} 
             profile={userProfile} 
             position={localState.pos} 
             rotation={localState.rot} 
             isLocal={true}
-            isHost={mySeat ? tableHosts[parseInt(mySeat.split('_')[0])] === localParticipant.identity : false}
+            isHost={mySeat ? tableHosts[parseInt(mySeat.split('_')[0])] === identity : false}
           />
         )}
-        {localParticipant && isDriving && (
+        {isDriving && (
           <Car position={localState.pos} rotation={[0, localState.rot, 0]} color={localColor || "#ef4444"} />
         )}
       </Canvas>
@@ -1104,10 +937,6 @@ export default function RoomEnvironment({ userProfile, localColor }) {
           onClick={() => {
              const nextDrive = !isDriving;
              setIsDriving(nextDrive);
-             if (localParticipant) {
-                const payload = JSON.stringify({ type: 'MOVE', pos: localState.pos, rot: localState.rot, profile: userProfile, isDriving: nextDrive });
-                localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
-             }
           }}
           className={`absolute bottom-8 left-1/2 -translate-x-1/2 z-40 px-6 py-3 rounded-full font-black tracking-wide shadow-2xl transition-all hover:scale-105 pointer-events-auto flex items-center gap-2 ${isDriving ? 'bg-red-500 text-white' : 'bg-primary-500 text-dark-900'}`}
         >

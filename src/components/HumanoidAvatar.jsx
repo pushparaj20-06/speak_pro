@@ -2,21 +2,8 @@ import React, { useRef, useState, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Html, Float } from '@react-three/drei';
 import * as THREE from 'three';
-import { useIsSpeaking } from '@livekit/components-react';
 
-export default function HumanoidAvatar(props) {
-  if (!props.participant) {
-    return <HumanoidAvatarModel {...props} isSpeaking={false} />;
-  }
-  return <HumanoidAvatarWithLiveKit {...props} />;
-}
-
-function HumanoidAvatarWithLiveKit(props) {
-  const isSpeaking = useIsSpeaking(props.participant);
-  return <HumanoidAvatarModel {...props} isSpeaking={isSpeaking} />;
-}
-
-function HumanoidAvatarModel({ participant, profile, position, rotation, isLocal, isHost, isSpeaking }) {
+export default function HumanoidAvatar({ identity, profile, position, rotation, isLocal, isHost, isSpeaking = false, networkEmote }) {
   const groupRef = useRef();
   const leftArmRef = useRef();
   const rightArmRef = useRef();
@@ -31,16 +18,24 @@ function HumanoidAvatarModel({ participant, profile, position, rotation, isLocal
   const skinColor = profile?.skinColor || '#fcd34d'; 
 
   useEffect(() => {
-    if (!participant?.identity) return;
+    if (networkEmote?.emoji) {
+       setActiveEmote(networkEmote.emoji);
+       const timer = setTimeout(() => setActiveEmote(null), 3000);
+       return () => clearTimeout(timer);
+    }
+  }, [networkEmote]);
+
+  useEffect(() => {
+    if (!identity) return;
     
     const handleChat = (e) => {
-      if (e.detail.sender === participant.identity) {
+      if (e.detail.sender === identity) {
          setActiveMessage(e.detail.message);
          setTimeout(() => setActiveMessage(null), 5000);
       }
     };
     const handleEmote = (e) => {
-      if (e.detail.sender === participant.identity) {
+      if (e.detail.sender === identity) {
          setActiveEmote(e.detail.emote);
          setTimeout(() => setActiveEmote(null), 3000);
       }
@@ -51,7 +46,7 @@ function HumanoidAvatarModel({ participant, profile, position, rotation, isLocal
       window.removeEventListener('TABLE_CHAT_RECEIVED', handleChat);
       window.removeEventListener('TABLE_EMOTE_RECEIVED', handleEmote);
     };
-  }, [participant?.identity]);
+  }, [identity]);
 
   // Breathing & Walking Animation
   const timeOffset = useRef(Math.random() * 100);
@@ -181,24 +176,21 @@ function HumanoidAvatarModel({ participant, profile, position, rotation, isLocal
       </group>
 
       {/* Host Badge */}
-      {isHost && (
-        <Float speed={2} floatIntensity={0.5} floatingRange={[0.1, 0.3]}>
-          <Html position={[0, 2.8, 0]} center transform sprite zIndexRange={[100, 0]}>
-            <div className="text-4xl filter drop-shadow-[0_0_15px_rgba(251,191,36,0.8)] animate-pulse" title="Table Host">
-              👑
+      <Float speed={2} floatIntensity={0.5} floatingRange={[0.1, 0.3]}>
+          <Html position={[0, 2.5, 0]} center sprite zIndexRange={[100, 0]}>
+          <div className="flex flex-col items-center select-none pointer-events-none">
+            {isHost && (
+              <div className="text-2xl mb-1 filter drop-shadow-md animate-bounce">
+                👑
+              </div>
+            )}
+            <div className={`px-2 py-0.5 rounded-full text-xs font-black tracking-wider whitespace-nowrap shadow-lg border border-white/20
+              ${isLocal ? 'bg-primary-500/90 text-dark-900 shadow-[0_0_15px_rgba(20,184,166,0.6)]' : 'bg-dark-900/80 text-white backdrop-blur-sm'}`}>
+              {profile?.nickname || 'Guest'}
             </div>
-          </Html>
-        </Float>
-      )}
-
-      {/* Name Tag */}
-      {profile?.nickname && (
-        <Html position={[0, -0.2, 0]} center zIndexRange={[100, 0]}>
-          <div className="bg-dark-900/80 backdrop-blur-md text-white px-3 py-1 rounded-full text-xs font-medium border border-white/20 whitespace-nowrap shadow-xl">
-            {profile.nickname} {isLocal ? '(You)' : ''}
           </div>
         </Html>
-      )}
+      </Float>
 
       {/* Emote Bubble */}
       {activeEmote && (
