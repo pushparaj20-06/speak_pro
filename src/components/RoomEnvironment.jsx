@@ -273,8 +273,8 @@ function LocalController({ localPos, setLocalPos, isSitting, isDriving }) {
           const headPos = new THREE.Vector3(localPos.pos[0], 2.0, localPos.pos[2]);
           const dir = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), localPos.rot);
           
-          const camTargetPos = headPos.clone().addScaledVector(dir, -3.5);
-          camTargetPos.y = 4.0;
+          const camTargetPos = headPos.clone().addScaledVector(dir, -6.0); // Further back
+          camTargetPos.y = 5.0; // Higher up
           camera.position.copy(camTargetPos);
           
           if (controlsRef.current) {
@@ -867,7 +867,7 @@ export default function RoomEnvironment({ userProfile, localColor, networkPlayer
         <PineTree position={[-6, 0, -6]} />
 
         {/* Welcome Text in the Center */}
-        <Html position={[0, 4, 0]} center transform sprite zIndexRange={[10, 0]}>
+        <Html position={[0, 4, 0]} center transform sprite zIndexRange={[10, 0]} scale={0.6}>
            <div className="text-white font-black text-xl md:text-4xl bg-black/50 px-4 md:px-6 py-2 rounded-2xl border-2 md:border-4 border-[#ffd700] whitespace-nowrap shadow-[0_0_30px_#ffd700] animate-pulse">
              WELCOME TO SPEAK PRO
            </div>

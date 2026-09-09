@@ -109,7 +109,7 @@ export default function GDArenaUI({ roomData, updateArenaState, myTableId, sendE
       </div>
 
       {/* Emoji Bar */}
-      <div className="fixed top-1/2 left-4 md:left-auto md:right-[400px] -translate-y-1/2 flex flex-col gap-3 pointer-events-auto z-40 bg-dark-900/40 p-3 rounded-full backdrop-blur-md border border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.5)]">
+      <div className="fixed top-40 left-1/2 -translate-x-1/2 md:top-1/2 md:left-auto md:right-[400px] md:-translate-x-0 md:-translate-y-1/2 flex flex-row md:flex-col gap-2 md:gap-3 pointer-events-auto z-40 bg-dark-900/60 p-2 md:p-3 rounded-full backdrop-blur-md border border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.5)]">
         {['👍', '❤️', '😂', '👏', '🔥', '🤔'].map(emoji => (
           <button 
             key={emoji}
@@ -118,7 +118,7 @@ export default function GDArenaUI({ roomData, updateArenaState, myTableId, sendE
               window.dispatchEvent(new CustomEvent('TABLE_EMOTE_RECEIVED', { detail: { emote: emoji, sender: identity } })); 
               sendEmote(emoji);
             }}
-            className="w-10 h-10 bg-dark-800/80 hover:bg-primary-500/80 rounded-full border border-white/10 flex items-center justify-center text-xl transition-transform hover:scale-110 shadow-lg"
+            className="w-8 h-8 md:w-10 md:h-10 bg-dark-800/80 hover:bg-primary-500/80 rounded-full border border-white/10 flex items-center justify-center text-base md:text-xl transition-transform hover:scale-110 shadow-lg"
           >
             {emoji}
           </button>
